@@ -888,7 +888,14 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if newly:
         names = ", ".join(content.ACHIEVEMENTS[k][0] for k in newly)
         reply += f"\n\n🏅 *Unlocked:* {names}!"
-    await update.message.reply_text(reply, parse_mode="Markdown")
+    try:
+        await update.message.reply_text(reply, parse_mode="Markdown")
+    except Exception:
+        # Fallback: send without markdown (covers bad formatting or no-permission chats)
+        try:
+            await update.message.reply_text(reply)
+        except Exception:
+            pass
 
 
 # ===================== Chat companion (Luna) ========================
