@@ -48,23 +48,30 @@ def system_prompt(persona: str) -> str:
 
 # --------------------------- LLM path --------------------------------
 def _llm_reply(chat_id: int, persona: str, text: str) -> str | None:
-    if not config.OPENROUTER_API_KEY:
+    if not config.OPENROUTER_API_KEY and "openrouter" not in config.LLM_BASE_URL.lower():
+        # Local backend (e.g. Ollama) with no key configured.
+        if not config.MODEL:
+            return None
+    elif not config.OPENROUTER_API_KEY:
         return None
     history = db.get_history(chat_id)[-config.MAX_HISTORY:]
     messages = [{"role": "system", "content": system_prompt(persona)}]
     messages += history
     messages.append({"role": "user", "content": text})
+    headers = {"Content-Type": "application/json"}
+    if config.OPENROUTER_API_KEY:
+        headers["Authorization"] = f"Bearer {config.OPENROUTER_API_KEY}"
+        headers["HTTP-Referer"] = "https://nova-bot.local"
+        headers["X-Title"] = "Nova Bot"
     models = [config.MODEL] + config.FALLBACK_MODELS
+    # For local single-model backends, try only the primary model.
+    if "openrouter" not in config.LLM_BASE_URL.lower():
+        models = [config.MODEL]
     for model in models:
         try:
             r = requests.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {config.OPENROUTER_API_KEY}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "https://nova-bot.local",
-                    "X-Title": "Nova Bot",
-                },
+                f"{config.LLM_BASE_URL}/chat/completions",
+                headers=headers,
                 json={"model": model, "messages": messages,
                       "max_tokens": 220, "temperature": 0.9},
                 timeout=config.REQUEST_TIMEOUT,

@@ -9,6 +9,9 @@ load_dotenv()
 # --- Telegram / LLM credentials (only BOT_TOKEN is required) ---
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+# LLM backend: defaults to OpenRouter. Point LLM_BASE_URL at a local Ollama
+# (e.g. http://localhost:11434/v1) to run models like dolphin-llama3 with no key.
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
 MODEL = os.getenv("MODEL", "meta-llama/llama-3.3-70b-instruct:free")
 FALLBACK_MODELS = [
     m.strip()
