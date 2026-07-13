@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timezone
+import secrets
 
 from . import config, content, db
 
@@ -129,3 +130,105 @@ def chat_reward(user_id: int) -> int:
     add_xp(user_id, 1)
     db.update_user(user_id, last_chat=now)
     return amt
+
+
+# --- Achievements ---
+def check_achievements(user_id: int) -> list[str]:
+    """Evaluate all achievement conditions; grant any newly-earned ones.
+
+    Returns a list of achievement keys that were JUST earned this call.
+    """
+    from . import content
+
+    u = db.get_user(user_id)
+    stats = db.get_json(u, "stats", {})
+    earned = set(stats.get("achievements", []))
+    level = config.level_from_xp(u["xp"])
+    pets = db.get_json(u, "pets", [])
+    props = db.get_json(u, "properties", [])
+    games_played = stats.get("games_played", 0)
+
+    def grant(key):
+        if key not in earned:
+            earned.add(key)
+            return True
+        return False
+
+    newly = []
+    # first_coins: reached 100 coins at some point (track peak)
+    peak = max(u["coins"], stats.get("peak_coins", 0))
+    stats["peak_coins"] = peak
+    if peak >= 100 and grant("first_coins"):
+        newly.append("first_coins")
+    if u["coins"] >= 1000 and grant("high_roller"):
+        newly.append("high_roller")
+    if len({p["key"] for p in pets}) >= 3 and grant("collector"):
+        newly.append("collector")
+    if len(props) >= 5 and grant("tycoon"):
+        newly.append("tycoon")
+    if level >= 10 and grant("level10"):
+        newly.append("level10")
+    if games_played >= 25 and grant("gambler"):
+        newly.append("gambler")
+
+    if newly:
+        stats["achievements"] = list(earned)
+        db.set_json(user_id, "stats", stats)
+        # small reward per achievement
+        add_coins(user_id, 100 * len(newly))
+        add_xp(user_id, 20 * len(newly))
+    return newly
+
+
+def awarded_achievements(user_id: int) -> list[str]:
+    u = db.get_user(user_id)
+    return db.get_json(u, "stats", {}).get("achievements", [])
+
+
+# --- Referrals ---
+REFERRER_BONUS = 150
+REFEREE_BONUS = 100
+
+
+def get_referral_code(user_id: int) -> str:
+    u = db.get_user(user_id)
+    stats = db.get_json(u, "stats", {})
+    code = stats.get("ref_code")
+    if not code:
+        code = f"NOVA{user_id:x}{secrets.token_hex(2).upper()}"
+        stats["ref_code"] = code
+        db.set_json(user_id, "stats", stats)
+    return code
+
+
+def apply_referral(referrer_id: int, new_user_id: int) -> dict:
+    """Credit both sides when `new_user` was referred. One-time per new user."""
+    if referrer_id == new_user_id:
+        return {"error": "Can't refer yourself."}
+    ref_u = db.get_user(referrer_id)
+    new_u = db.get_user(new_user_id)
+    new_stats = db.get_json(new_u, "stats", {})
+    if new_stats.get("referred_by"):
+        return {"error": "Already used a referral."}
+    # verify code matches referrer's
+    ref_stats = db.get_json(ref_u, "stats", {})
+    if new_stats.get("ref_code_used") == ref_stats.get("ref_code"):
+        return {"error": "Already used this code."}
+    add_coins(referrer_id, REFERRER_BONUS)
+    add_coins(new_user_id, REFEREE_BONUS)
+    add_xp(referrer_id, 25)
+    add_xp(new_user_id, 15)
+    new_stats["referred_by"] = referrer_id
+    new_stats["ref_code_used"] = ref_stats.get("ref_code")
+    db.set_json(new_user_id, "stats", new_stats)
+    return {"ok": True, "referrer_bonus": REFERRER_BONUS,
+            "referee_bonus": REFEREE_BONUS}
+
+
+def record_game(user_id: int) -> list[str]:
+    """Call after any game play: bump counter and evaluate achievements."""
+    u = db.get_user(user_id)
+    stats = db.get_json(u, "stats", {})
+    stats["games_played"] = stats.get("games_played", 0) + 1
+    db.set_json(user_id, "stats", stats)
+    return check_achievements(user_id)

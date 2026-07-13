@@ -23,8 +23,13 @@ OpenRouter key.
   farming, crafting) and a stock-investment sim.
 - **Social** — global leaderboard, guilds (create/join), friends, gifting,
   player-to-player trading, redeemable promo codes.
-- **AI companion** — greets, jokes, and nudges users toward commands; replies
-  via OpenRouter (with free-model fallback chain) when a key is provided.
+- **Achievements** — 6 unlockable badges (first coins, high roller, collector,
+  tycoon, level 10, gambler) awarded automatically as you play, each with a bonus.
+- **Tic-Tac-Toe** — play ❌ vs the bot's ⭕ on an inline board (`/ttt`).
+- **Referrals** — `/refer` gives you a personal code + link; when a friend starts
+  the bot with it, you both get coins.
+- **Chat companions** — switch between **Nova** ⚡ (game master) and **Luna** 🌸
+  (cheerful girl AI assistant) via `/persona`; free-text chat uses the selected one.
 - **Persistent** — SQLite store (no external services needed).
 
 ---
@@ -58,10 +63,11 @@ That's it — message your bot `/start` 🎉
 
 | Group | Commands |
 |-------|----------|
-| Economy | `/start` `/profile` `/wallet` `/balance` `/daily` `/weekly` `/spin` `/quests` `/missions` `/leaderboard` `/redeem` `/settings` `/support` |
+| Economy | `/start` `/profile` `/wallet` `/balance` `/daily` `/weekly` `/spin` `/quests` `/missions` `/leaderboard` `/achievements` `/redeem` `/refer` `/settings` `/support` |
 | World | `/shop` `/market` `/trade` `/auction` `/property` `/buy` `/sell` `/rent` `/upgrade` `/bank` `/invest` `/inventory` `/garage` `/travel` |
 | Social | `/guild` `/friends` `/gift` |
-| Games | `/games` `/quiz` `/rpg` `/battle` `/boss` `/pet` `/fishing` `/mining` `/farming` `/craft` `/casino` `/blackjack` `/poker` `/slots` `/dice` `/chess` `/events` |
+| Games | `/games` `/ttt` `/quiz` `/rpg` `/battle` `/boss` `/pet` `/fishing` `/mining` `/farming` `/craft` `/casino` `/blackjack` `/poker` `/slots` `/dice` `/chess` `/events` |
+| Chat | `/chat` `/persona` |
 
 Quick casino bets via text:
 ```

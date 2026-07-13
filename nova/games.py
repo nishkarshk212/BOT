@@ -231,6 +231,91 @@ def catch_pet(user_id: int, pet_key: str = None) -> dict:
     return {"success": False, "pet": (name, emoji, rarity)}
 
 
+# --------------------------- Tic-Tac-Toe -----------------------------
+# board: list of 9 chars " ", "X" (player), "O" (bot)
+WIN_LINES = [
+    (0, 1, 2), (3, 4, 5), (6, 7, 8),
+    (0, 3, 6), (1, 4, 7), (2, 5, 8),
+    (0, 4, 8), (2, 4, 6),
+]
+
+
+def _ttt_winner(board):
+    for a, b, c in WIN_LINES:
+        if board[a] != " " and board[a] == board[b] == board[c]:
+            return board[a]
+    if " " not in board:
+        return "draw"
+    return None
+
+
+def ttt_new() -> dict:
+    return {"board": [" "] * 9, "turn": "X", "over": False, "result": None}
+
+
+def ttt_move(state: dict, pos: int) -> dict:
+    """Apply player move at `pos` (0-8), then bot move; returns updated state."""
+    if state["over"] or not (0 <= pos <= 8) or state["board"][pos] != " ":
+        return state
+    board = state["board"]
+    board[pos] = "X"
+    w = _ttt_winner(board)
+    if w:
+        state["over"] = True
+        state["result"] = "win" if w == "X" else ("draw" if w == "draw" else "lose")
+        return state
+    # bot picks: win if possible, else block, else center/corner/first
+    bot = _ttt_bot_move(board)
+    if bot is not None:
+        board[bot] = "O"
+    w = _ttt_winner(board)
+    if w:
+        state["over"] = True
+        state["result"] = "lose" if w == "O" else ("draw" if w == "draw" else "win")
+    return state
+
+
+def _ttt_bot_move(board):
+    # win
+    for i in range(9):
+        if board[i] == " ":
+            board[i] = "O"
+            win = _ttt_winner(board) == "O"
+            board[i] = " "
+            if win:
+                return i
+    # block
+    for i in range(9):
+        if board[i] == " ":
+            board[i] = "X"
+            win = _ttt_winner(board) == "X"
+            board[i] = " "
+            if win:
+                return i
+    # center
+    if board[4] == " ":
+        return 4
+    # corners
+    for i in (0, 2, 6, 8):
+        if board[i] == " ":
+            return i
+    # any
+    for i in range(9):
+        if board[i] == " ":
+            return i
+    return None
+
+
+def ttt_render(board) -> str:
+    def c(i):
+        return board[i] if board[i] != " " else str(i + 1)
+    return (
+        f"{c(0)}│{c(1)}│{c(2)}\n─┼─┼─\n"
+        f"{c(3)}│{c(4)}│{c(5)}\n─┼─┼─\n"
+        f"{c(6)}│{c(7)}│{c(8)}"
+    )
+
+
 # --------------------------- Property buy ----------------------------
 def buy_property(user_id: int, key: str) -> dict:
     if key not in content.PROPERTIES:

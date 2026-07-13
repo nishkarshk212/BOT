@@ -42,11 +42,29 @@ async def _reply(update: Update, text: str, markup=None):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = db.get_user(uid(update), *uname(update))
     lvl = config.level_from_xp(user["xp"])
+    # referral hook: /start <CODE>
+    ref_note = ""
+    if context.args:
+        code = context.args[0].strip().upper()
+        # find referrer by code
+        with db._lock, db._conn() as c:
+            rows = c.execute("SELECT id, stats FROM users").fetchall()
+        matched = None
+        for r in rows:
+            st = db.get_json(dict(r), "stats", {})
+            if st.get("ref_code") == code and r["id"] != uid(update):
+                matched = r["id"]; break
+        if matched:
+            res = economy.apply_referral(matched, uid(update))
+            if res.get("ok"):
+                ref_note = (f"\n🎁 *Referral bonus!* +{res['referee_bonus']}🪙 thanks to your friend! "
+                            f"(they got +{res['referrer_bonus']}🪙)\n")
     txt = (
         f"👋 *Welcome to Nova*, {user['first_name'] or 'Player'}! ⚡\n\n"
         "I'm your fun companion, game master & virtual-world manager. "
         "Earn coins, collect pets, own properties, and climb the leaderboard!\n\n"
-        f"🪙 *{user['coins']} coins*  💎 *{user['gems']} gems*  ⭐ *Level {lvl}*\n\n"
+        f"🪙 *{user['coins']} coins*  💎 *{user['gems']} gems*  ⭐ *Level {lvl}*"
+        f"{ref_note}\n\n"
         "Tap a button or type /help for the full command list."
     )
     await _reply(update, txt, kbd([
@@ -63,13 +81,15 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "*📖 Nova Command Guide*\n\n"
         "*Economy & Profile*\n"
         "/start · /profile · /wallet · /balance · /daily · /weekly · /spin\n"
-        "/quests · /missions · /leaderboard · /redeem · /settings · /support\n\n"
+        "/quests · /missions · /leaderboard · /achievements · /redeem · /refer · /settings · /support\n\n"
         "*World & Ownership*\n"
         "/shop · /market · /trade · /auction · /property · /buy · /sell · /rent · /upgrade\n"
         "/bank · /invest · /inventory · /garage · /travel · /guild · /friends · /gift\n\n"
         "*Games & Fun*\n"
-        "/games · /quiz · /rpg · /battle · /boss · /pet · /fishing · /mining · /farming\n"
+        "/games · /ttt · /quiz · /rpg · /battle · /boss · /pet · /fishing · /mining · /farming\n"
         "/craft · /casino · /blackjack · /poker · /slots · /dice · /chess · /events\n\n"
+        "*Chat companions*\n"
+        "/chat · /persona  (switch between Nova ⚡ and Luna 🌸)\n\n"
         "*Quick bets (casino)*\n"
         "`/coinflip 100 heads` · `/dice 50` · `/rps rock`\n"
         "`/blackjack 200` · `/slots 50` · `/guess 7`\n\n"
@@ -311,6 +331,7 @@ async def games_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [("🃏 Blackjack", "g:blackjack"), ("🎰 Slots", "g:slots"), ("❓ Quiz", "g:quiz")],
         [("🔢 Guess", "g:guess"), ("🐟 Fishing", "g:fishing"), ("⛏️ Mining", "g:mining")],
         [("🌾 Farming", "g:farming"), ("🛠️ Craft", "g:craft"), ("📈 Invest", "g:invest")],
+        [("⭕❌ Tic-Tac-Toe", "g:ttt"), ("🏆 Quests", "quests"), ("⭐ Achievements", "achievements")],
     ]
     await _reply(update, txt, kbd(rows + [[("🏠 Menu", "start")]]))
 
@@ -345,9 +366,20 @@ async def game_pick(update, context, g):
         await simple_game(update, context, g)
     elif g == "invest":
         await invest(update, context)
+    elif g == "ttt":
+        await ttt_start(update, context)
 
 
 # ---- casino handlers ----
+def _after_game(update, out, markup):
+    """Record a game play and append any newly-unlocked achievements to `out`."""
+    newly = economy.record_game(uid(update))
+    if newly:
+        names = ", ".join(content.ACHIEVEMENTS[k][0] for k in newly)
+        out += f"\n\n🏅 *Unlocked:* {names}!"
+    return out, markup
+
+
 async def cb_coinflip(update, context, side, bet):
     res = games.coinflip(uid(update), int(bet), side)
     if "error" in res:
@@ -356,6 +388,7 @@ async def cb_coinflip(update, context, side, bet):
     icon = "🪙" if res["result"] == "heads" else "🔥"
     out = f"{icon} *Coin Flip*: it was *{res['result']}* — you {'WON' if res['win'] else 'lost'} " \
           f"{'+' if res['win'] else '-'}{bet}🪙!"
+    out, _ = _after_game(update, out, None)
     await _reply(update, out, kbd([[("🔁 Again", "g:coinflip"), ("🎮 Games", "games")]]))
 
 
@@ -366,6 +399,7 @@ async def cb_dice(update, context, bet):
         return
     out = f"🎲 Rolled *{res['rolled']}* — you {'WON' if res['win'] else 'lost'} " \
           f"{'+' if res['win'] else '-'}{res['bet'] if not res['win'] else int(res['bet']*0.8)}🪙"
+    out, _ = _after_game(update, out, None)
     await _reply(update, out, kbd([[("🔁 Again", "g:dice"), ("🎮 Games", "games")]]))
 
 
@@ -374,6 +408,7 @@ async def cb_rps(update, context, choice):
     emoji = {"rock": "✊", "paper": "✋", "scissors": "✌️"}
     verdict = {"win": "🏆 You WIN +30🪙!", "lose": "😞 You lost!", "tie": "🤝 Tie!"}
     out = f"{emoji[res['you']]} vs {emoji[res['bot']]}\n{verdict[res['outcome']]}"
+    out, _ = _after_game(update, out, None)
     await _reply(update, out, kbd([[("🔁 Again", "g:rps"), ("🎮 Games", "games")]]))
 
 
@@ -390,6 +425,7 @@ async def cb_blackjack(update, context, bet):
         v = "😞 Dealer wins"
     out = (f"🃏 *Blackjack*\nYour hand: {res['player']} = {res['player_val']}\n"
            f"Dealer: {res['dealer']} = {res['dealer_val']}\n{v}")
+    out, _ = _after_game(update, out, None)
     await _reply(update, out, kbd([[("🔁 Again", "g:blackjack"), ("🎮 Games", "games")]]))
 
 
@@ -401,6 +437,7 @@ async def cb_slots(update, context, bet):
     reels = " ".join(res["reels"])
     out = f"🎰 {reels}\n" + ("🏆 JACKPOT! +%d🪙" % res["payout"] if res["win"]
           else f"😞 No match, -{bet}🪙")
+    out, _ = _after_game(update, out, None)
     await _reply(update, out, kbd([[("🔁 Again", "g:slots"), ("🎮 Games", "games")]]))
 
 
@@ -413,6 +450,7 @@ async def cb_guess(update, context, n):
     else:
         context.user_data["secret"] = res["secret"]
         out = f"❌ Not {n}… it's {res['hint']}! Try /guess again."
+    out, _ = _after_game(update, out, None)
     await _reply(update, out, kbd([[("🔁 Again", "g:guess"), ("🎮 Games", "games")]]))
 
 
@@ -434,6 +472,7 @@ async def quiz_answer_cb(update, context, ans):
     else:
         out = f"❌ Not quite — the answer was: *{correct}*"
     context.user_data.pop("quiz_answer", None)
+    out, _ = _after_game(update, out, None)
     await _reply(update, out, kbd([[("➡️ Next", "g:quiz"), ("🎮 Games", "games")]]))
 
 
@@ -459,8 +498,9 @@ async def simple_game(update, context, g):
     db.set_json(uid(update), "stats", stats)
     emoji = {"fishing": "🐟", "mining": "⛏️", "farming": "🌾", "craft": "🛠️"}[g]
     label = {"fishing": "Caught a big one", "mining": "Mined ore", "farming": "Harvested crops", "craft": "Crafted an item"}[g]
-    await _reply(update, f"{emoji} *{label}!* +{amt}🪙 & +10 XP.\nCooldown {CD[g]}s.",
-                 kbd([[("🎮 Games", "games")]]))
+    out = f"{emoji} *{label}!* +{amt}🪙 & +10 XP.\nCooldown {CD[g]}s."
+    out, _ = _after_game(update, out, None)
+    await _reply(update, out, kbd([[("🎮 Games", "games")]]))
 
 
 # ---- invest (stock sim) ----
@@ -480,9 +520,63 @@ async def invest(update, context):
     economy.add_coins(uid(update), out)
     economy.add_xp(uid(update), 5)
     arrow = "📈" if out >= 0 else "📉"
-    await _reply(update, f"{arrow} *Investment* of {bet}🪙 → {'+' if out>=0 else ''}{out}🪙 "
+    await _reply(update, f"{arrow} *Investment* of {bet}🪙 → {'+' if out>=0 else ''}{out}🪙 " \
                   f"(×{mult:.2f})\n💡 Tip: /bank to keep coins safe!",
                  kbd([[("🎮 Games", "games")]]))
+
+
+# ---- tic-tac-toe vs bot ----
+def _ttt_keyboard(board):
+    rows = []
+    for r in range(3):
+        row = []
+        for c in range(3):
+            i = r * 3 + c
+            cell = board[i] if board[i] != " " else "·"
+            row.append((cell, f"ttt:{i}"))
+        rows.append(row)
+    return rows
+
+
+async def ttt_start(update, context):
+    chat_id = update.effective_chat.id
+    context.user_data.setdefault("ttt", {})
+    context.user_data["ttt"][chat_id] = games.ttt_new()
+    st = context.user_data["ttt"][chat_id]
+    await _reply(update, "⭕❌ *Tic-Tac-Toe!* You're ❌, I'm ⭕. You go first!\n\n" +
+                 games.ttt_render(st["board"]),
+                 kbd(_ttt_keyboard(st["board"]) + [[("🎮 Games", "games")]]))
+
+
+async def ttt_move_cb(update, context, pos):
+    chat_id = update.effective_chat.id
+    store = context.user_data.setdefault("ttt", {})
+    st = store.get(chat_id)
+    if st is None:
+        await ttt_start(update, context)
+        return
+    st.update(games.ttt_move(st, int(pos)))
+    board = st["board"]
+    if st["over"]:
+        result = st["result"]
+        if result == "win":
+            economy.add_coins(uid(update), 40); economy.add_xp(uid(update), 12)
+            verdict = "🏆 You WIN! +40🪙"
+        elif result == "draw":
+            economy.add_coins(uid(update), 10); economy.add_xp(uid(update), 5)
+            verdict = "🤝 Draw!"
+        else:
+            verdict = "😞 I win this round!"
+        newly = economy.record_game(uid(update))
+        txt = f"⭕❌ *Tic-Tac-Toe*\n\n{games.ttt_render(board)}\n\n{verdict}"
+        if newly:
+            names = ", ".join(content.ACHIEVEMENTS[k][0] for k in newly)
+            txt += f"\n\n🏅 *Unlocked:* {names}!"
+        del store[chat_id]
+        await _reply(update, txt, kbd([[("🔁 Play again", "g:ttt"), ("🎮 Games", "games")]]))
+    else:
+        txt = "⭕❌ *Your move!* (You're ❌)\n\n" + games.ttt_render(board)
+        await _reply(update, txt, kbd(_ttt_keyboard(board) + [[("🎮 Games", "games")]]))
 
 
 # ============================ Leaderboard ============================
@@ -642,8 +736,24 @@ async def guild(update, context):
 
 
 async def friends(update, context):
-    await _reply(update, "👫 *Friends* — invite buddies with your referral!\n"
-                  "Every friend who does /start earns you both a bonus. 🎉\n🚧 Full friend list & co-op missions coming soon!")
+    code = economy.get_referral_code(uid(update))
+    await _reply(update,
+        "👫 *Friends* — invite buddies and you BOTH earn coins!\n\n"
+        f"🔗 Your referral link: `https://t.me/NovaBot?start={code}`\n"
+        f"Or share your code: `{code}`\n\n"
+        "When a friend starts the bot with your code, you get "
+        f"+{economy.REFERRER_BONUS}🪙 and they get +{economy.REFEREE_BONUS}🪙. 🎉\n"
+        "🚧 Full friend list & co-op missions coming soon!")
+
+
+async def refer(update, context):
+    code = economy.get_referral_code(uid(update))
+    await _reply(update,
+        "🔗 *Your Referral* — invite friends, earn together!\n\n"
+        f"Share this link:\n`https://t.me/NovaBot?start={code}`\n\n"
+        f"Code: `{code}`\n\n"
+        f"You get +{economy.REFERRER_BONUS}🪙 · friend gets +{economy.REFEREE_BONUS}🪙 "
+        "when they start with your code.")
 
 
 async def gift(update, context):
@@ -749,6 +859,22 @@ async def support(update, context):
                   "Play fair, keep it friendly, and enjoy! ⚡")
 
 
+# ============================ Achievements ============================
+async def achievements(update, context):
+    u = db.get_user(uid(update))
+    earned = set(economy.awarded_achievements(uid(update)))
+    lines = []
+    for key, (name, desc) in content.ACHIEVEMENTS.items():
+        mark = "✅" if key in earned else "🔒"
+        lines.append(f"{mark} *{name}* — {desc}")
+    claimed = economy.check_achievements(uid(update))
+    head = ""
+    if claimed:
+        head = "🎉 *New achievement unlocked!* +100🪙 & +20XP each\n\n"
+    await _reply(update, head + "*🏅 Achievements*\n" + "\n".join(lines),
+                 kbd([[("🏠 Menu", "start")]]))
+
+
 # ============================ Free chat ============================
 async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = uid(update)
@@ -758,6 +884,10 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply = ai.nova_reply(update.effective_chat.id, user_id, text)
     if reward:
         reply += f"\n\n_(+{reward}🪙 for chatting!)_"
+    newly = economy.check_achievements(user_id)
+    if newly:
+        names = ", ".join(content.ACHIEVEMENTS[k][0] for k in newly)
+        reply += f"\n\n🏅 *Unlocked:* {names}!"
     await update.message.reply_text(reply, parse_mode="Markdown")
 
 
@@ -819,6 +949,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "shop": shop, "inv": inventory, "property": property_menu,
         "pet": pet_menu, "games": games_menu, "leaderboard": leaderboard,
         "quests": quests, "wallet": wallet, "guild": guild, "events": events,
+        "achievements": achievements,
     }
     if tag in alias:
         await alias[tag](update, context); return
@@ -836,6 +967,8 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await catch(update, context); return
     if tag == "g" and len(parts) > 1:
         await game_pick(update, context, parts[1]); return
+    if tag == "ttt" and len(parts) > 1:
+        await ttt_move_cb(update, context, parts[1]); return
     if tag == "cf":
         await cb_coinflip(update, context, parts[1], parts[2]); return
     if tag == "dice":
