@@ -7,7 +7,10 @@ and a conversational AI brain.
 
 It works **out of the box with zero config** (built-in rule-based companion),
 and upgrades to an **LLM-powered persona** automatically when you supply an
-OpenRouter key.
+OpenRouter key or point `LLM_BASE_URL` at a local Ollama server (Dolphin models).
+
+**Built with:** Python 3.11+, [Pyrogram](https://docs.pyrogram.org) (bot framework)
++ TGCrypto, SQLite for persistence.
 
 ---
 

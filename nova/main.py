@@ -1,108 +1,86 @@
-"""Nova bot entrypoint — builds the python-telegram-bot Application and runs polling."""
+"""Nova bot entry-point helpers (Pyrogram framework).
+
+Builds the Client and registers all command + callback handlers via Pyrogram's
+decorator-style `app.on_message` / `app.on_callback_query` registration.
+"""
 from __future__ import annotations
 
 import logging
 
-from telegram.ext import (
-    Application,
-    CallbackQueryHandler,
-    CommandHandler,
-    MessageHandler,
-    filters,
-)
+from pyrogram import filters
 
-from . import config, db, handlers
+from .bot import build_client, configure_logging
+from . import handlers
 
-logging.basicConfig(
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    level=logging.INFO,
-)
 logger = logging.getLogger("nova")
 
-# Map command name -> handler (so /balance, /redeem etc. are all wired)
 COMMANDS = {
-    "start": handlers.start,
-    "help": handlers.help_cmd,
-    "profile": handlers.profile,
-    "wallet": handlers.wallet,
-    "balance": handlers.balance,
-    "daily": handlers.daily,
-    "weekly": handlers.weekly,
-    "spin": handlers.spin,
-    "quests": handlers.quests,
-    "missions": handlers.missions,
-    "inventory": handlers.inventory,
-    "shop": handlers.shop,
-    "market": handlers.market,
-    "trade": handlers.trade,
-    "auction": handlers.auction,
-    "leaderboard": handlers.leaderboard,
-    "games": handlers.games_menu,
-    "rpg": handlers.rpg,
-    "battle": handlers.battle,
-    "boss": handlers.boss,
-    "pet": handlers.pet_menu,
-    "property": handlers.property_menu,
-    "buy": handlers.property_menu,
-    "sell": handlers.property_menu,
-    "rent": handlers.rent_prop,
-    "upgrade": handlers.property_menu,
-    "bank": handlers.bank,
-    "invest": handlers.invest,
-    "casino": handlers.games_menu,
-    "blackjack": handlers.games_menu,
-    "poker": handlers.games_menu,
-    "slots": handlers.games_menu,
-    "dice": handlers.games_menu,
-    "chess": handlers.games_menu,
-    "quiz": handlers.games_menu,
-    "fishing": handlers.games_menu,
-    "mining": handlers.games_menu,
-    "farming": handlers.games_menu,
-    "craft": handlers.games_menu,
-    "travel": handlers.travel,
-    "garage": handlers.garage,
-    "guild": handlers.guild,
-    "friends": handlers.friends,
-    "gift": handlers.gift,
-    "refer": handlers.refer,
-    "achievements": handlers.achievements,
-    "ttt": handlers.ttt_start,
-    "events": handlers.events,
-    "redeem": handlers.redeem,
-    "settings": handlers.settings,
-    "support": handlers.support,
-    "chat": handlers.chat_cmd,
-    "persona": handlers.persona,
+    "start", "help", "profile", "wallet", "balance", "daily", "weekly", "spin",
+    "quests", "missions", "leaderboard", "achievements", "redeem", "refer",
+    "settings", "support", "shop", "market", "trade", "auction", "property",
+    "buy", "sell", "rent", "upgrade", "bank", "invest", "inventory", "garage",
+    "travel", "guild", "friends", "gift", "events", "rpg", "battle", "boss",
+    "pet", "fishing", "mining", "farming", "craft", "casino", "blackjack",
+    "poker", "slots", "dice", "chess", "quiz", "ttt", "chat", "persona",
+}
+
+# command name -> handler function
+HANDLER_MAP = {
+    "start": handlers.start, "help": handlers.help_cmd, "profile": handlers.profile,
+    "wallet": handlers.wallet, "balance": handlers.balance, "daily": handlers.daily,
+    "weekly": handlers.weekly, "spin": handlers.spin, "quests": handlers.quests,
+    "missions": handlers.missions, "leaderboard": handlers.leaderboard,
+    "achievements": handlers.achievements, "redeem": handlers.redeem,
+    "refer": handlers.refer, "settings": handlers.settings, "support": handlers.support,
+    "shop": handlers.shop, "market": handlers.market, "trade": handlers.trade,
+    "auction": handlers.auction, "property": handlers.property_menu, "buy": handlers.buy_prop,
+    "sell": handlers.sell_prop, "rent": handlers.rent_prop, "upgrade": handlers.upgrade_prop,
+    "bank": handlers.bank, "invest": handlers.invest, "inventory": handlers.inventory,
+    "garage": handlers.garage, "travel": handlers.travel, "guild": handlers.guild,
+    "friends": handlers.friends, "gift": handlers.gift, "events": handlers.events,
+    "rpg": handlers.rpg, "battle": handlers.battle, "boss": handlers.boss,
+    "pet": handlers.pet_menu, "fishing": handlers.simple_game, "mining": handlers.simple_game,
+    "farming": handlers.simple_game, "craft": handlers.simple_game, "casino": handlers.games_menu,
+    "blackjack": handlers.games_menu, "poker": handlers.games_menu, "slots": handlers.cb_slots,
+    "dice": handlers.cb_dice, "chess": handlers.games_menu, "quiz": handlers.quiz_start,
+    "ttt": handlers.ttt_start, "chat": handlers.chat_cmd, "persona": handlers.persona,
 }
 
 
-def build_application() -> Application:
-    if not config.BOT_TOKEN:
-        raise SystemExit(
-            "❌ BOT_TOKEN not set. Copy .env.example to .env and add your token."
-        )
-    db.init()
-    app = Application.builder().token(config.BOT_TOKEN).build()
-    for name, fn in COMMANDS.items():
-        app.add_handler(CommandHandler(name, fn))
-    app.add_handler(CallbackQueryHandler(handlers.callback))
-    # free-text chat (must be last)
-    app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.chat)
-    )
-    logger.info("Nova online. LLM=%s",
-                config.OPENROUTER_API_KEY and "OpenRouter"
-                or ("local:" + config.LLM_BASE_URL.split("/")[-2].split(":")[0]
-                    if "openrouter" not in config.LLM_BASE_URL.lower()
-                    else "rule-based"))
+def register(app) -> None:
+    """Attach every command and the callback router to the Client."""
+    for name, fn in HANDLER_MAP.items():
+        # simple cooldown mini-games + slots/dice reuse the message.command arg
+        app.on_message(filters.command(name) & filters.private)(fn)
+    # group chats: also respond (best-effort). Pyrogram dispatches groups too.
+    app.on_message(filters.command(list(COMMANDS)) & filters.group)(_group_dispatch)
+    # free-text chat (non-command) in private chats -> companion reply
+    app.on_message(filters.text & ~filters.command([]) & filters.private)(handlers.chat)
+    # callback queries
+    app.on_callback_query()(handlers.callback)
+
+
+async def _group_dispatch(client, message):
+    # Only handle the command actually present (avoid double-handling when also private)
+    if not message.command:
+        return
+    name = message.command[0].lower()
+    fn = HANDLER_MAP.get(name)
+    if fn:
+        await fn(client, message)
+
+
+def build_application():
+    """Build (not run) the Pyrogram Client with handlers registered.
+
+    Mirrors the old `build_application` name so run.py / tests stay simple.
+    """
+    app = build_client()
+    register(app)
+    configure_logging()
     return app
 
 
-def main() -> None:
+def run() -> None:
     app = build_application()
-    app.run_polling(drop_pending_updates=True)
-
-
-if __name__ == "__main__":
-    main()
+    app.run()
