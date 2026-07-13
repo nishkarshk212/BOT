@@ -8,6 +8,10 @@ load_dotenv()
 
 # --- Telegram / LLM credentials (only BOT_TOKEN is required) ---
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+# Pyrogram needs a Telegram APP id/hash (get yours free at https://my.telegram.org
+# -> API development tools). These are app credentials, not per-bot secrets.
+API_ID = os.getenv("API_ID", "")
+API_HASH = os.getenv("API_HASH", "")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 # LLM backend: defaults to OpenRouter. Point LLM_BASE_URL at a local Ollama
 # (e.g. http://localhost:11434/v1) to run models like dolphin-llama3 with no key.
