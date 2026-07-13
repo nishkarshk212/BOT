@@ -92,7 +92,10 @@ def build_application() -> Application:
         MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.chat)
     )
     logger.info("Nova online. LLM=%s",
-                "OpenRouter" if config.OPENROUTER_API_KEY else "rule-based")
+                config.OPENROUTER_API_KEY and "OpenRouter"
+                or ("local:" + config.LLM_BASE_URL.split("/")[-2].split(":")[0]
+                    if "openrouter" not in config.LLM_BASE_URL.lower()
+                    else "rule-based"))
     return app
 
 
