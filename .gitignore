@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Local bot state / secrets
+data/
+*.db
+.env
+.env.*
+!*.example
+
+# Test scratch
+tests/tmp_data/
+tmp_*/
