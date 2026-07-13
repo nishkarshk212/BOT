@@ -8,7 +8,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from . import config, content, db, economy, games
-from .ai import nova_reply
+from . import ai as ai
 
 EMOJI = "✨🎮💎🪙🔥🚀🎉⚡🏆🌟"
 COIN = "🪙"
@@ -52,7 +52,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _reply(update, txt, kbd([
         [("🎁 Daily", "daily"), ("🎡 Spin", "spin"), ("🎮 Games", "games")],
         [("🛒 Shop", "shop"), ("🏠 Property", "property"), ("🐾 Pet", "pet")],
-        [("🏆 Leaderboard", "leaderboard"), ("❓ Help", "help")],
+        [("💬 Chat", "chat"), ("🧑‍🤝‍🧑 Persona", "persona"), ("🏆 Leaderboard", "leaderboard")],
+        [("❓ Help", "help")],
     ]))
 
 
@@ -754,10 +755,54 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db.get_user(user_id, *uname(update))
     reward = economy.chat_reward(user_id)
     text = update.message.text or ""
-    reply = nova_reply(update.effective_chat.id, user_id, text)
+    reply = ai.nova_reply(update.effective_chat.id, user_id, text)
     if reward:
         reply += f"\n\n_(+{reward}🪙 for chatting!)_"
     await update.message.reply_text(reply, parse_mode="Markdown")
+
+
+# ===================== Chat companion (Luna) ========================
+async def chat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Open a chat with the selected companion (Luna by default via /chat)."""
+    user_id = uid(update)
+    db.get_user(user_id, *uname(update))
+    if context.args:
+        # /chat luna  -> switch then say hi
+        want = context.args[0].lower()
+        if ai.set_persona(user_id, want):
+            persona = want
+        else:
+            await _reply(update, f"❌ Unknown companion. Try /persona to see options.")
+            return
+    else:
+        persona = ai.get_persona(user_id)
+    p = content.PERSONAS[persona]
+    await _reply(update,
+        f"{p['emoji']} *{p['name']} is here!* 💬\n\n"
+        f"Just send me a message and we'll chat. "
+        f"Switch companions anytime with /persona.",
+        kbd([[("🧑‍🤝‍🧑 Persona", "persona"), ("🎮 Games", "games")]]))
+
+
+async def persona(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.args:
+        want = context.args[0].lower()
+        if ai.set_persona(uid(update), want):
+            p = content.PERSONAS[want]
+            await _reply(update,
+                f"✅ Switched to *{p['emoji']} {p['name']}*! Send a message to chat. 💬",
+                kbd([[("💬 Chat", "chat"), ("🏠 Menu", "start")]]))
+        else:
+            await _reply(update, "❌ Unknown companion. Use /persona to see the list.")
+        return
+    cur = ai.get_persona(uid(update))
+    rows = []
+    for key, p in content.PERSONAS.items():
+        mark = " ✅" if key == cur else ""
+        rows.append([(f"{p['emoji']} {p['name']}{mark}", f"setpersona:{key}")])
+    await _reply(update,
+        "🧑‍🤝‍🧑 *Choose your companion* — this is who replies to your free-text chat:",
+        kbd(rows + [[("💬 Chat", "chat"), ("🏠 Menu", "start")]]))
 
 
 # ============================ Callback router ============================
@@ -807,5 +852,16 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await quiz_answer_cb(update, context, parts[1]); return
     if tag == "quest":
         await claim_quest(update, context, parts[1]); return
+    if tag == "setpersona":
+        pkey = parts[1]
+        if ai.set_persona(uid(update), pkey):
+            p = content.PERSONAS[pkey]
+            await q.edit_message_text(
+                f"✅ Switched to *{p['emoji']} {p['name']}*! Send a message to chat. 💬",
+                reply_markup=kbd([[("💬 Chat", "chat"), ("🏠 Menu", "start")]]),
+                parse_mode="Markdown")
+        else:
+            await q.edit_message_text("❌ Unknown companion.")
+        return
     # unknown
     await q.edit_message_text("🤖 (unknown button)")

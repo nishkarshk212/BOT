@@ -69,6 +69,8 @@ COMMANDS = {
     "redeem": handlers.redeem,
     "settings": handlers.settings,
     "support": handlers.support,
+    "chat": handlers.chat_cmd,
+    "persona": handlers.persona,
 }
 
 
